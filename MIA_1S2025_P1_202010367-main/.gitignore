@@ -1,0 +1,7 @@
+# Ignorar todos los archivos .mia en la carpeta disks
+disks/*.mia
+
+# Ignorar archivos grandes en general
+*.iso
+*.bin
+*.img

@@ -1,0 +1,5 @@
+digraph G {
+  rankdir=LR;
+  node [shape=record];
+  disk [label="{MBR|Libre 0.0%|Particion1 Primaria 20.0%|Particion2 Primaria 40.0%|Libre 40.0%|}"];
+}

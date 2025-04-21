@@ -1,0 +1,36 @@
+digraph G {
+  node [shape=plaintext]
+  rankdir=LR;
+  ebr0 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+    <TR><TD COLSPAN="2">EBR 0</TD></TR>
+    <TR><TD>part_status</TD><TD>1</TD></TR>
+    <TR><TD>part_fit</TD><TD>W</TD></TR>
+    <TR><TD>part_start</TD><TD>5243033</TD></TR>
+    <TR><TD>part_size</TD><TD>3145728</TD></TR>
+    <TR><TD>part_next</TD><TD>5243067</TD></TR>
+    <TR><TD>part_name</TD><TD>Logica1</TD></TR>
+    <TR><TD>part_id</TD><TD>671A</TD></TR>
+  </TABLE>>];
+  ebr0 -> ebr1;
+  ebr1 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+    <TR><TD COLSPAN="2">EBR 1</TD></TR>
+    <TR><TD>part_status</TD><TD>0</TD></TR>
+    <TR><TD>part_fit</TD><TD>W</TD></TR>
+    <TR><TD>part_start</TD><TD>5243067</TD></TR>
+    <TR><TD>part_size</TD><TD>3145728</TD></TR>
+    <TR><TD>part_next</TD><TD>5243101</TD></TR>
+    <TR><TD>part_name</TD><TD>Logica2</TD></TR>
+    <TR><TD>part_id</TD><TD></TD></TR>
+  </TABLE>>];
+  ebr1 -> ebr2;
+  ebr2 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+    <TR><TD COLSPAN="2">EBR 2</TD></TR>
+    <TR><TD>part_status</TD><TD>0</TD></TR>
+    <TR><TD>part_fit</TD><TD>W</TD></TR>
+    <TR><TD>part_start</TD><TD>5243101</TD></TR>
+    <TR><TD>part_size</TD><TD>2097152</TD></TR>
+    <TR><TD>part_next</TD><TD>-1</TD></TR>
+    <TR><TD>part_name</TD><TD>Logica3</TD></TR>
+    <TR><TD>part_id</TD><TD></TD></TR>
+  </TABLE>>];
+}

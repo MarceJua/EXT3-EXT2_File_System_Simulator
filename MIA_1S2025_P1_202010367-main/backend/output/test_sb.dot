@@ -1,0 +1,23 @@
+digraph G {
+  node [shape=plaintext]
+  tbl [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+    <TR><TD COLSPAN="2">REPORTE SUPERBLOQUE</TD></TR>
+    <TR><TD>S_filesystem_type</TD><TD>2</TD></TR>
+    <TR><TD>S_inodes_count</TD><TD>2</TD></TR>
+    <TR><TD>S_blocks_count</TD><TD>2</TD></TR>
+    <TR><TD>S_free_inodes_count</TD><TD>7382</TD></TR>
+    <TR><TD>S_free_blocks_count</TD><TD>22150</TD></TR>
+    <TR><TD>S_mtime</TD><TD>2025-03-09T20:10:08-06:00</TD></TR>
+    <TR><TD>S_umtime</TD><TD>2025-03-09T20:10:08-06:00</TD></TR>
+    <TR><TD>S_mnt_count</TD><TD>1</TD></TR>
+    <TR><TD>S_magic</TD><TD>61267</TD></TR>
+    <TR><TD>S_inode_size</TD><TD>88</TD></TR>
+    <TR><TD>S_block_size</TD><TD>64</TD></TR>
+    <TR><TD>S_first_ino</TD><TD>29933</TD></TR>
+    <TR><TD>S_first_blo</TD><TD>679677</TD></TR>
+    <TR><TD>S_bm_inode_start</TD><TD>221</TD></TR>
+    <TR><TD>S_bm_block_start</TD><TD>7605</TD></TR>
+    <TR><TD>S_inode_start</TD><TD>29757</TD></TR>
+    <TR><TD>S_block_start</TD><TD>679549</TD></TR>
+  </TABLE>>];
+}

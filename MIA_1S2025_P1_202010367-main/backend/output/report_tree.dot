@@ -1,0 +1,7 @@
+digraph Tree {
+  node [shape=box]
+  "/" -> "users.txt"
+  "/" -> "home"
+  "home" -> "docs"
+  "docs" -> "test.txt"
+}

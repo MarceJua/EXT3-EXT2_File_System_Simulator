@@ -1,0 +1,23 @@
+digraph G {
+  node [shape=plaintext]
+  tbl [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+    <TR><TD COLSPAN="2">REPORTE MBR</TD></TR>
+    <TR><TD>mbr_tamano</TD><TD>5242880</TD></TR>
+    <TR><TD>mrb_fecha_creacion</TD><TD>2025-03-21T18:02:08-06:00</TD></TR>
+    <TR><TD>mbr_disk_signature</TD><TD>478220117</TD></TR>
+    <TR><TD COLSPAN="2">PARTICIÓN 1</TD></TR>
+    <TR><TD>part_status</TD><TD>1</TD></TR>
+    <TR><TD>part_type</TD><TD>P</TD></TR>
+    <TR><TD>part_fit</TD><TD>B</TD></TR>
+    <TR><TD>part_start</TD><TD>153</TD></TR>
+    <TR><TD>part_size</TD><TD>1048576</TD></TR>
+    <TR><TD>part_name</TD><TD>Particion1</TD></TR>
+    <TR><TD COLSPAN="2">PARTICIÓN 2</TD></TR>
+    <TR><TD>part_status</TD><TD>0</TD></TR>
+    <TR><TD>part_type</TD><TD>P</TD></TR>
+    <TR><TD>part_fit</TD><TD>W</TD></TR>
+    <TR><TD>part_start</TD><TD>1048729</TD></TR>
+    <TR><TD>part_size</TD><TD>2097152</TD></TR>
+    <TR><TD>part_name</TD><TD>Particion2</TD></TR>
+  </TABLE>>];
+}

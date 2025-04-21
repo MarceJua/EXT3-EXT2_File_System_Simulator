@@ -1,0 +1,96 @@
+mkdisk -size=5 -unit=M -fit=WF -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+
+fdisk -size=1 -type=P -unit=M -fit=BF -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+fdisk -size=2 -type=P -unit=M -fit=WF -name="Particion2" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+
+mount -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+
+mkfs -id=671A
+
+mkdir -path="/home"
+mkdir -path="/home/usac"
+mkdir -path="/home/work"
+mkdir -path="/home/usac/mia"
+
+rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_mbr" -name=mbr
+rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_inode" -name=inode
+rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_bm_inode" -name=bm_inode
+
+rep -id="671A" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_disk" -name="disk"
+rep -id="671A" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_sb" -name="sb"
+
+
+---------------
+
+mkdisk -size=5 -unit=M -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+fdisk -size=1 -type=P -unit=M -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+mount -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+mkfs -id=671A
+login -user=root -pass=123 -id=671A
+mkgrp -name=usuarios
+cat -file1=/users.txt
+mkgrp -name=admins
+rmgrp -name=usuarios
+cat -file1=/users.txt
+mkusr -user=user1 -pass=pass123 -grp=admins
+cat -file1=/users.txt
+rmusr -user=user1
+cat -file1=/users.txt
+mkusr -user=user1 -pass=pass123 -grp=admins
+chgrp -user=user1 -grp=root
+cat -file1=/users.txt
+logout
+login -user=root -pass=123 -id=671A
+mkusr -user=user1 -pass=pass123 -grp=admins
+chgrp -user=user1 -grp=root
+cat -file1=/users.txt
+
+
+------------------
+// Crea un disco
+mkdisk -size=5 -unit=M -fit=WF -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+
+// Elimina un disco
+rmdisk -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+
+// Crea una particion 
+fdisk -size=1 -type=P -unit=M -fit=BF -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+
+// Monta una particion
+mount -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+
+// Formatea la particion montada
+mkfs -id=671A
+
+// Muestra las particiones montadas
+mounted
+
+// Crea carpetas desde la padre
+mkdir -path="/home"
+mkdir -path="/home/user"
+mkdir -path="/home/user/docs"
+
+//Crea las carpetas padre
+mkfile -size=15 -path=/home/user/docs/a.txt -r
+
+// Ya existe la carpeta
+mkfile -path="/home/test.txt" -size=4
+mkfile -path="/home/user/docs/test.txt" -size=15
+mkfile -path=/home/user/docs/b.txt -r -cont=/home/Documents/b.txt
+
+// Leer el contenido del archivo
+cat -file1="/home/test.txt"
+
+// Login Logout
+login -user=root -pass=123 -id=191A
+Logout
+
+mkgrp -name=usuarios
+rmgrp -name=usuarios
+
+// Reportes
+rep -id=191A -path="/home/carlos-david/Documents/Proyecto/backend/output/report_mbr.png" -name=mbr
+rep -id=191A -path="/home/carlos-david/Documents/Proyecto/backend/output/report_inode.png" -name=inode
+rep -id=191A -path="/home/carlos-david/Documents/Proyecto/backend/output/report_bm_inode.txt" -name=bm_inode
+rep -id=191A -path=/home/carlos-david/Documents/Proyecto/backend/output/report_disk.png -name=disk
+rep -id="191A" -path="/home/carlos-david/Documents/Proyecto/backend/output/report_sb.jpg" -name="sb"
