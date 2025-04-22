@@ -144,6 +144,10 @@ func commandMkfs(mkfs *MKFS) error {
 		if err := structures.FormatEXT3(partitionPath, int32(startOffset), partitionSize); err != nil {
 			return err
 		}
+		// Inicializar el Journal
+		if err := initializeJournal(superBlock, partitionPath); err != nil {
+			return fmt.Errorf("error al inicializar Journal: %v", err)
+		}
 	} else {
 		if err := superBlock.CreateBitMaps(file); err != nil {
 			return err
@@ -231,4 +235,29 @@ func createSuperBlock(startOffset int64, n int32, fs string) *structures.SuperBl
 		sb.S_journal_start = int32(startOffset + int64(binary.Size(structures.SuperBlock{})))
 	}
 	return sb
+}
+
+// initializeJournal limpia el área del Journal con ceros
+func initializeJournal(sb *structures.SuperBlock, diskPath string) error {
+	file, err := os.OpenFile(diskPath, os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("error al abrir disco: %v", err)
+	}
+	defer file.Close()
+
+	// Mover al inicio del Journal
+	_, err = file.Seek(int64(sb.S_journal_start), 0)
+	if err != nil {
+		return fmt.Errorf("error al mover al inicio del Journal: %v", err)
+	}
+
+	// Escribir ceros para S_journal_count entradas
+	journalSize := int32(binary.Size(structures.Journal{}))
+	buffer := make([]byte, journalSize*sb.S_journal_count)
+	_, err = file.Write(buffer)
+	if err != nil {
+		return fmt.Errorf("error al inicializar Journal: %v", err)
+	}
+
+	return nil
 }

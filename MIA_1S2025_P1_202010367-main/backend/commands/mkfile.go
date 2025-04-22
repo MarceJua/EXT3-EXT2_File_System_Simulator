@@ -137,6 +137,16 @@ func commandMkfile(mkfile *MKFILE) error {
 		return fmt.Errorf("error al serializar superbloque: %w", err)
 	}
 
+	// Registrar la creación del archivo en el Journal
+	contentToLog := finalContent
+	if contentToLog == "" {
+		contentToLog = "-"
+	}
+	err = AddJournalEntry(sb, diskPath, "mkfile", mkfile.path, contentToLog)
+	if err != nil {
+		return fmt.Errorf("error al registrar en el Journal: %v", err)
+	}
+
 	return nil
 }
 
@@ -181,11 +191,12 @@ func checkParentExists(sb *structures.SuperBlock, diskPath string, parentDirs []
 // createParentFolders crea los directorios padres recursivamente
 func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs []string) error {
 	currentInode := int32(0) // Raíz
+	currentPath := "/"
 	for _, dir := range parentDirs {
 		inode := &structures.Inode{}
 		err := inode.Deserialize(diskPath, int64(sb.S_inode_start+currentInode*sb.S_inode_size))
 		if err != nil {
-			return err
+			return fmt.Errorf("error al deserializar inodo %d: %v", currentInode, err)
 		}
 
 		// Verificar si la carpeta ya existe
@@ -197,7 +208,7 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 			block := &structures.FolderBlock{}
 			err = block.Deserialize(diskPath, int64(sb.S_block_start+blockIndex*sb.S_block_size))
 			if err != nil {
-				return err
+				return fmt.Errorf("error al deserializar bloque %d: %v", blockIndex, err)
 			}
 			for _, content := range block.B_content {
 				name := strings.Trim(string(content.B_name[:]), "\x00")
@@ -264,7 +275,7 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 					parentBlock = &structures.FolderBlock{}
 					err = parentBlock.Deserialize(diskPath, int64(sb.S_block_start+bIndex*sb.S_block_size))
 					if err != nil {
-						return err
+						return fmt.Errorf("error al deserializar bloque padre %d: %v", bIndex, err)
 					}
 					for k := 0; k < len(parentBlock.B_content); k++ {
 						if parentBlock.B_content[k].B_inodo == -1 || strings.Trim(string(parentBlock.B_content[k].B_name[:]), "\x00") == "" {
@@ -296,7 +307,7 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 
 					err = parentBlock.Serialize(diskPath, int64(sb.S_block_start+parentBlockIndex*sb.S_block_size))
 					if err != nil {
-						return err
+						return fmt.Errorf("error al serializar bloque padre %d: %v", parentBlockIndex, err)
 					}
 					err = sb.UpdateBitmapBlock(diskPath, parentBlockIndex)
 					if err != nil {
@@ -313,7 +324,7 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 			// Serializar nuevo bloque
 			err = newBlock.Serialize(diskPath, int64(sb.S_block_start+newBlockIndex*sb.S_block_size))
 			if err != nil {
-				return err
+				return fmt.Errorf("error al serializar bloque %d: %v", newBlockIndex, err)
 			}
 			err = sb.UpdateBitmapBlock(diskPath, newBlockIndex)
 			if err != nil {
@@ -324,7 +335,7 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 			// Serializar nuevo inodo
 			err = newInode.Serialize(diskPath, int64(sb.S_inode_start+newInodeIndex*sb.S_inode_size))
 			if err != nil {
-				return err
+				return fmt.Errorf("error al serializar inodo %d: %v", newInodeIndex, err)
 			}
 			err = sb.UpdateBitmapInode(diskPath, newInodeIndex)
 			if err != nil {
@@ -335,17 +346,25 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 			// Actualizar bloque padre
 			err = parentBlock.Serialize(diskPath, int64(sb.S_block_start+parentBlockIndex*sb.S_block_size))
 			if err != nil {
-				return err
+				return fmt.Errorf("error al serializar bloque padre %d: %v", parentBlockIndex, err)
 			}
 
 			// Actualizar inodo padre
 			err = inode.Serialize(diskPath, int64(sb.S_inode_start+currentInode*sb.S_inode_size))
 			if err != nil {
-				return err
+				return fmt.Errorf("error al serializar inodo padre %d: %v", currentInode, err)
+			}
+
+			// Registrar en el Journal
+			pathToLog := currentPath + dir
+			err = AddJournalEntry(sb, diskPath, "mkdir", pathToLog, "-")
+			if err != nil {
+				return fmt.Errorf("error al registrar en el Journal para %s: %v", pathToLog, err)
 			}
 
 			currentInode = newInodeIndex
 		}
+		currentPath += dir + "/"
 	}
 	return nil
 }

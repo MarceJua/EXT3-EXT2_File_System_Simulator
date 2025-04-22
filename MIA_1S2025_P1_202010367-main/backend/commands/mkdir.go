@@ -82,6 +82,12 @@ func commandMkdir(mkdir *MKDIR) error {
 		return err
 	}
 
+	// Registrar en el Journal
+	err = AddJournalEntry(partitionSuperblock, partitionPath, "mkdir", mkdir.path, "-")
+	if err != nil {
+		return fmt.Errorf("error al registrar en el Journal: %v", err)
+	}
+
 	return nil
 }
 
