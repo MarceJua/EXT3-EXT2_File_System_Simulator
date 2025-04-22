@@ -68,8 +68,10 @@ func Analyzer(input string) (string, error) {
 		return commands.ParseFdisk(tokens[1:])
 	case "mount":
 		return commands.ParseMount(tokens[1:])
-	case "mounted": // Asumo que esto es un comando personalizado para listar particiones montadas
+	case "mounted":
 		return commands.ParseMounted(tokens[1:])
+	case "unmount":
+		return commands.ParseUnmount(tokens[1:])
 	case "mkfs":
 		return commands.ParseMkfs(tokens[1:])
 	case "rep":

@@ -19,6 +19,11 @@ type MOUNT struct {
 	name string // Nombre de la partición
 }
 
+// UNMOUNT estructura que representa el comando unmount con sus parámetros
+type UNMOUNT struct {
+	id string // ID de la partición a desmontar
+}
+
 /*
 	mount -path=/home/Disco1.mia -name=Part1 #id=341a
 	mount -path=/home/Disco2.mia -name=Part1 #id=342a
@@ -66,6 +71,41 @@ func ParseMount(tokens []string) (string, error) {
 	}
 
 	return fmt.Sprintf("MOUNT: Partición %s montada correctamente con ID: %s", cmd.name, id), nil
+}
+
+// ParseUnmount parsea el comando unmount y devuelve una instancia de UNMOUNT
+func ParseUnmount(tokens []string) (string, error) {
+	cmd := &UNMOUNT{}
+
+	for _, token := range tokens {
+		parts := strings.SplitN(token, "=", 2)
+		if len(parts) != 2 {
+			return "", fmt.Errorf("formato inválido: %s", token)
+		}
+		key := strings.ToLower(parts[0])
+		value := parts[1]
+
+		switch key {
+		case "-id":
+			if value == "" {
+				return "", errors.New("el id no puede estar vacío")
+			}
+			cmd.id = value
+		default:
+			return "", fmt.Errorf("parámetro desconocido: %s", key)
+		}
+	}
+
+	if cmd.id == "" {
+		return "", errors.New("faltan parámetros requeridos: -id")
+	}
+
+	err := commandUnmount(cmd)
+	if err != nil {
+		return "", fmt.Errorf("error al desmontar la partición: %v", err)
+	}
+
+	return fmt.Sprintf("UNMOUNT: Partición con ID %s desmontada correctamente", cmd.id), nil
 }
 
 func commandMount(mount *MOUNT) (string, error) {
@@ -156,4 +196,80 @@ func commandMount(mount *MOUNT) (string, error) {
 		return "", fmt.Errorf("error al serializar MBR: %v", err)
 	}
 	return id, nil
+}
+
+func commandUnmount(unmount *UNMOUNT) error {
+	// Verificar si la partición está montada
+	path, exists := stores.MountedPartitions[unmount.id]
+	if !exists {
+		return fmt.Errorf("la partición con ID %s no está montada", unmount.id)
+	}
+
+	// Abrir disco
+	file, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		return fmt.Errorf("error al abrir disco: %v", err)
+	}
+	defer file.Close()
+
+	// Leer MBR
+	var mbr structures.MBR
+	if err := mbr.Deserialize(path); err != nil {
+		return fmt.Errorf("error al deserializar MBR: %v", err)
+	}
+
+	// Buscar partición primaria
+	for i, p := range mbr.Mbr_partitions {
+		if strings.Trim(string(p.Part_id[:]), "\x00") == unmount.id {
+			if p.Part_status[0] != '1' {
+				return fmt.Errorf("la partición con ID %s no está montada", unmount.id)
+			}
+			p.Part_status = [1]byte{'0'}
+			p.Part_id = [4]byte{}
+			mbr.Mbr_partitions[i] = p
+			if err := mbr.Serialize(path); err != nil {
+				return fmt.Errorf("error al serializar MBR: %v", err)
+			}
+			delete(stores.MountedPartitions, unmount.id)
+			return nil
+		}
+	}
+
+	// Buscar partición lógica
+	var extPartition *structures.Partition
+	for _, p := range mbr.Mbr_partitions {
+		if p.Part_type[0] == 'E' && p.Part_status[0] != 'N' {
+			extPartition = &p
+			break
+		}
+	}
+	if extPartition == nil {
+		return fmt.Errorf("partición con ID %s no encontrada", unmount.id)
+	}
+
+	var currentEBR structures.EBR
+	currentOffset := int64(extPartition.Part_start)
+	for {
+		if err := currentEBR.Deserialize(file, currentOffset); err != nil {
+			return fmt.Errorf("error al leer EBR: %v", err)
+		}
+		if strings.Trim(string(currentEBR.Part_id[:]), "\x00") == unmount.id {
+			if currentEBR.Part_status[0] != '1' {
+				return fmt.Errorf("la partición con ID %s no está montada", unmount.id)
+			}
+			currentEBR.Part_status = [1]byte{'0'}
+			currentEBR.Part_id = [4]byte{}
+			if err := currentEBR.Serialize(file, currentOffset); err != nil {
+				return fmt.Errorf("error al serializar EBR: %v", err)
+			}
+			delete(stores.MountedPartitions, unmount.id)
+			return nil
+		}
+		if currentEBR.Part_next == -1 {
+			break
+		}
+		currentOffset = int64(currentEBR.Part_next)
+	}
+
+	return fmt.Errorf("partición con ID %s no encontrada", unmount.id)
 }

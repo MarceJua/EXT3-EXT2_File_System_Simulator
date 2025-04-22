@@ -8,18 +8,21 @@ import (
 	"strconv"
 	"strings"
 
+	stores "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/stores"
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/structures"
 	utils "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/utils"
 )
 
 // FDISK estructura que representa el comando fdisk con sus parámetros
 type FDISK struct {
-	size int    // Tamaño de la partición
-	unit string // Unidad de medida del tamaño (B, K o M)
-	fit  string // Tipo de ajuste (BF, FF, WF)
-	path string // Ruta del archivo del disco
-	typ  string // Tipo de partición (P, E, L)
-	name string // Nombre de la partición
+	size   int    // Tamaño de la partición
+	unit   string // Unidad de medida del tamaño (B, K o M)
+	fit    string // Tipo de ajuste (BF, FF, WF)
+	path   string // Ruta del archivo del disco
+	typ    string // Tipo de partición (P, E, L)
+	name   string // Nombre de la partición
+	delete string // Modo de eliminación (fast, full)
+	add    int    // Tamaño a añadir o reducir
 }
 
 // ParseFdisk parsea el comando fdisk y devuelve una instancia de FDISK
@@ -70,53 +73,117 @@ func ParseFdisk(tokens []string) (string, error) {
 				return "", errors.New("el nombre no puede estar vacío")
 			}
 			cmd.name = value
+		case "-delete":
+			value = strings.ToLower(value)
+			if value != "fast" && value != "full" {
+				return "", errors.New("el modo de eliminación debe ser fast o full")
+			}
+			cmd.delete = value
+		case "-add":
+			add, err := strconv.Atoi(value)
+			if err != nil {
+				return "", errors.New("el valor de add debe ser un entero")
+			}
+			cmd.add = add
 		default:
 			return "", fmt.Errorf("parámetro desconocido: %s", key)
 		}
 	}
 
 	// Validar parámetros requeridos
-	if cmd.size == 0 {
-		return "", errors.New("faltan parámetros requeridos: -size")
+	if cmd.path == "" || cmd.name == "" {
+		return "", errors.New("faltan parámetros requeridos: -path, -name")
 	}
-	if cmd.path == "" {
-		return "", errors.New("faltan parámetros requeridos: -path")
-	}
-	if cmd.name == "" {
-		return "", errors.New("faltan parámetros requeridos: -name")
+
+	// Validar combinaciones de parámetros
+	if cmd.delete != "" {
+		if cmd.size > 0 || cmd.add != 0 || cmd.typ != "" || cmd.fit != "" {
+			return "", errors.New("el parámetro -delete no puede combinarse con -size, -add, -type o -fit")
+		}
+	} else if cmd.add != 0 {
+		if cmd.size > 0 || cmd.delete != "" {
+			return "", errors.New("el parámetro -add no puede combinarse con -size o -delete")
+		}
+	} else {
+		if cmd.size == 0 {
+			return "", errors.New("faltan parámetros requeridos: -size")
+		}
 	}
 
 	// Establecer valores por defecto
 	if cmd.unit == "" {
-		cmd.unit = "K" // Cambiado de "M" a "K" según especificaciones
+		cmd.unit = "K"
 	}
-	if cmd.fit == "" {
+	if cmd.fit == "" && cmd.delete == "" && cmd.add == 0 {
 		cmd.fit = "WF"
 	}
-	if cmd.typ == "" {
+	if cmd.typ == "" && cmd.delete == "" && cmd.add == 0 {
 		cmd.typ = "P"
 	}
 
 	// Ejecutar el comando
 	err := commandFdisk(cmd)
 	if err != nil {
-		return "", fmt.Errorf("error al crear la partición: %v", err)
+		return "", fmt.Errorf("error al ejecutar FDISK: %v", err)
 	}
 
+	if cmd.delete != "" {
+		return fmt.Sprintf("FDISK: Partición %s eliminada correctamente en %s", cmd.name, cmd.path), nil
+	} else if cmd.add != 0 {
+		return fmt.Sprintf("FDISK: Tamaño de partición %s ajustado correctamente en %s", cmd.name, cmd.path), nil
+	}
 	return fmt.Sprintf("FDISK: Partición %s creada correctamente en %s", cmd.name, cmd.path), nil
 }
 
-// commandFdisk implementa la lógica para crear la partición
+// commandFdisk implementa la lógica para crear, añadir o eliminar particiones
 func commandFdisk(fdisk *FDISK) error {
+	// Crear directorios padre si no existen
+	if err := utils.CreateParentDirs(fdisk.path); err != nil {
+		return err
+	}
+
+	// Verificar si la partición está montada
+	for id, path := range stores.MountedPartitions {
+		if path == fdisk.path {
+			var mbr structures.MBR
+			if err := mbr.Deserialize(fdisk.path); err != nil {
+				return fmt.Errorf("error al deserializar MBR: %v", err)
+			}
+			partition, _ := mbr.GetPartitionByNameFromID(id)
+			if partition != nil && strings.Trim(string(partition.Part_name[:]), "\x00") == fdisk.name {
+				return errors.New("no se puede modificar una partición montada")
+			}
+		}
+	}
+
+	// Abrir disco
+	file, err := os.OpenFile(fdisk.path, os.O_RDWR, 0644)
+	if err != nil {
+		return fmt.Errorf("error al abrir disco: %v", err)
+	}
+	defer file.Close()
+
+	// Leer MBR
+	var mbr structures.MBR
+	if err := mbr.Deserialize(fdisk.path); err != nil {
+		return fmt.Errorf("error al deserializar MBR: %v", err)
+	}
+
+	// Manejar -delete
+	if fdisk.delete != "" {
+		return deletePartition(&mbr, fdisk, file)
+	}
+
+	// Manejar -add
+	if fdisk.add != 0 {
+		return addPartitionSize(&mbr, fdisk, file)
+	}
+
+	// Crear nueva partición
 	// Convertir el tamaño a bytes
 	sizeBytes, err := utils.ConvertToBytes(fdisk.size, fdisk.unit)
 	if err != nil {
 		return fmt.Errorf("error al convertir tamaño: %v", err)
-	}
-
-	var mbr structures.MBR
-	if err := mbr.Deserialize(fdisk.path); err != nil {
-		return fmt.Errorf("error al deserializar MBR: %v", err)
 	}
 
 	// Validar nombre duplicado en primarias/extendidas
@@ -134,6 +201,197 @@ func commandFdisk(fdisk *FDISK) error {
 	default:
 		return errors.New("tipo de partición inválido")
 	}
+}
+
+// deletePartition elimina una partición primaria o lógica
+func deletePartition(mbr *structures.MBR, fdisk *FDISK, file *os.File) error {
+	// Buscar partición primaria
+	partition, _ := mbr.GetPartitionByName(fdisk.name)
+	if partition != nil {
+		if fdisk.delete == "full" {
+			// Sobrescribir con ceros
+			if _, err := file.Seek(int64(partition.Part_start), 0); err != nil {
+				return err
+			}
+			zeros := make([]byte, partition.Part_size)
+			if _, err := file.Write(zeros); err != nil {
+				return err
+			}
+		}
+		// Marcar como no usada
+		partition.Part_status = [1]byte{'N'}
+		partition.Part_size = 0
+		partition.Part_start = -1
+		partition.Part_name = [16]byte{}
+		partition.Part_id = [4]byte{}
+		partition.Part_type = [1]byte{}
+		partition.Part_fit = [1]byte{}
+		partition.Part_correlative = 0
+		return mbr.Serialize(fdisk.path)
+	}
+
+	// Buscar partición lógica
+	var extPartition *structures.Partition
+	for _, p := range mbr.Mbr_partitions {
+		if p.Part_type[0] == 'E' && p.Part_status[0] != 'N' {
+			extPartition = &p
+			break
+		}
+	}
+	if extPartition == nil {
+		return fmt.Errorf("partición %s no encontrada", fdisk.name)
+	}
+
+	var currentEBR structures.EBR
+	currentOffset := int64(extPartition.Part_start)
+	var prevOffset int64 = -1
+	for {
+		if err := currentEBR.Deserialize(file, currentOffset); err != nil {
+			return fmt.Errorf("error al leer EBR: %v", err)
+		}
+		if strings.Trim(string(currentEBR.Part_name[:]), "\x00") == fdisk.name {
+			if fdisk.delete == "full" {
+				// Sobrescribir con ceros
+				if _, err := file.Seek(int64(currentEBR.Part_start), 0); err != nil {
+					return err
+				}
+				zeros := make([]byte, currentEBR.Part_size)
+				if _, err := file.Write(zeros); err != nil {
+					return err
+				}
+			}
+			// Actualizar el enlace del EBR anterior
+			if prevOffset != -1 {
+				var prevEBR structures.EBR
+				if err := prevEBR.Deserialize(file, prevOffset); err != nil {
+					return fmt.Errorf("error al leer EBR anterior: %v", err)
+				}
+				prevEBR.Part_next = currentEBR.Part_next
+				if err := prevEBR.Serialize(file, prevOffset); err != nil {
+					return fmt.Errorf("error al serializar EBR anterior: %v", err)
+				}
+			} else {
+				// Si es el primer EBR, inicializar un nuevo EBR vacío o copiar el siguiente
+				if currentEBR.Part_next != -1 {
+					var nextEBR structures.EBR
+					if err := nextEBR.Deserialize(file, int64(currentEBR.Part_next)); err != nil {
+						return fmt.Errorf("error al leer EBR siguiente: %v", err)
+					}
+					if err := nextEBR.Serialize(file, currentOffset); err != nil {
+						return fmt.Errorf("error al serializar nuevo EBR inicial: %v", err)
+					}
+				} else {
+					// No hay más EBRs, inicializar uno vacío
+					emptyEBR := structures.EBR{
+						Part_status: [1]byte{'N'},
+						Part_start:  -1,
+						Part_size:   0,
+						Part_next:   -1,
+					}
+					if err := emptyEBR.Serialize(file, currentOffset); err != nil {
+						return fmt.Errorf("error al serializar EBR vacío: %v", err)
+					}
+				}
+			}
+			return nil
+		}
+		if currentEBR.Part_next == -1 {
+			break
+		}
+		prevOffset = currentOffset
+		currentOffset = int64(currentEBR.Part_next)
+	}
+	return fmt.Errorf("partición lógica %s no encontrada", fdisk.name)
+}
+
+// addPartitionSize ajusta el tamaño de una partición primaria o lógica
+func addPartitionSize(mbr *structures.MBR, fdisk *FDISK, file *os.File) error {
+	// Convertir add a bytes
+	addBytes, err := utils.ConvertToBytes(fdisk.add, fdisk.unit)
+	if err != nil {
+		return err
+	}
+	if addBytes == 0 {
+		return errors.New("el valor de add no puede ser cero")
+	}
+
+	// Buscar partición primaria
+	partition, _ := mbr.GetPartitionByName(fdisk.name)
+	if partition != nil {
+		newSize := int(partition.Part_size) + addBytes
+		if newSize <= 0 {
+			return errors.New("el nuevo tamaño de la partición no puede ser menor o igual a cero")
+		}
+		// Verificar espacio disponible
+		fileInfo, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		diskSize := fileInfo.Size()
+		endPosition := int64(partition.Part_start) + int64(newSize)
+		if endPosition > diskSize {
+			return errors.New("no hay suficiente espacio en el disco")
+		}
+		// Verificar colisión con otras particiones
+		for _, p := range mbr.Mbr_partitions {
+			if p.Part_status[0] == 'N' || p.Part_start == -1 {
+				continue
+			}
+			if p.Part_start > partition.Part_start && p.Part_start < int32(endPosition) {
+				return errors.New("el nuevo tamaño colisiona con otra partición")
+			}
+		}
+		partition.Part_size = int32(newSize)
+		return mbr.Serialize(fdisk.path)
+	}
+
+	// Buscar partición lógica
+	var extPartition *structures.Partition
+	for _, p := range mbr.Mbr_partitions {
+		if p.Part_type[0] == 'E' && p.Part_status[0] != 'N' {
+			extPartition = &p
+			break
+		}
+	}
+	if extPartition == nil {
+		return fmt.Errorf("partición %s no encontrada", fdisk.name)
+	}
+
+	var currentEBR structures.EBR
+	currentOffset := int64(extPartition.Part_start)
+	for {
+		if err := currentEBR.Deserialize(file, currentOffset); err != nil {
+			return fmt.Errorf("error al leer EBR: %v", err)
+		}
+		if strings.Trim(string(currentEBR.Part_name[:]), "\x00") == fdisk.name {
+			newSize := int(currentEBR.Part_size) + addBytes
+			if newSize <= 0 {
+				return errors.New("el nuevo tamaño de la partición no puede ser menor o igual a cero")
+			}
+			// Verificar espacio en partición extendida
+			endPosition := int64(currentEBR.Part_start) + int64(newSize)
+			if endPosition > int64(extPartition.Part_start+extPartition.Part_size) {
+				return errors.New("no hay suficiente espacio en la partición extendida")
+			}
+			// Verificar colisión con EBR siguiente
+			if currentEBR.Part_next != -1 {
+				var nextEBR structures.EBR
+				if err := nextEBR.Deserialize(file, int64(currentEBR.Part_next)); err != nil {
+					return err
+				}
+				if int64(nextEBR.Part_start) < endPosition {
+					return errors.New("el nuevo tamaño colisiona con la siguiente partición lógica")
+				}
+			}
+			currentEBR.Part_size = int32(newSize)
+			return currentEBR.Serialize(file, currentOffset)
+		}
+		if currentEBR.Part_next == -1 {
+			break
+		}
+		currentOffset = int64(currentEBR.Part_next)
+	}
+	return fmt.Errorf("partición lógica %s no encontrada", fdisk.name)
 }
 
 // createPrimaryPartition crea una partición primaria
