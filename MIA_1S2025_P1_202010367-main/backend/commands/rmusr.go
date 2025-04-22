@@ -194,5 +194,11 @@ func commandRmusr(rmusr *RMUSR) error {
 		return fmt.Errorf("error al actualizar superbloque: %v", err)
 	}
 
+	// Registrar en el Journal
+	err = AddJournalEntry(partitionSuperblock, partitionPath, "rmusr", "/users.txt", rmusr.user)
+	if err != nil {
+		return fmt.Errorf("error al registrar en el Journal: %v", err)
+	}
+
 	return nil
 }

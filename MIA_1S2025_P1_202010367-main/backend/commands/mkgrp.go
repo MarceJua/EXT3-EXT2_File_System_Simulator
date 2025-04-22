@@ -75,9 +75,38 @@ func commandMkgrp(mkgrp *MKGRP) error {
 	}
 	defer file.Close()
 
-	// Leer el inodo de users.txt (inodo 1)
+	// Encontrar el inodo de users.txt desde la raíz
+	rootInode := &structures.Inode{}
+	err = rootInode.Deserialize(partitionPath, int64(partitionSuperblock.S_inode_start))
+	if err != nil {
+		return fmt.Errorf("error al leer inodo raíz: %v", err)
+	}
+	var usersInodeNum int32 = -1
+	for _, blockNum := range rootInode.I_block[:12] {
+		if blockNum == -1 {
+			break
+		}
+		folderBlock := &structures.FolderBlock{}
+		err = folderBlock.Deserialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*partitionSuperblock.S_block_size))
+		if err != nil {
+			return err
+		}
+		for _, content := range folderBlock.B_content {
+			if strings.Trim(string(content.B_name[:]), "\x00") == "users.txt" {
+				usersInodeNum = content.B_inodo
+				break
+			}
+		}
+		if usersInodeNum != -1 {
+			break
+		}
+	}
+	if usersInodeNum == -1 {
+		return errors.New("users.txt no encontrado")
+	}
+
 	usersInode := &structures.Inode{}
-	err = usersInode.Deserialize(partitionPath, int64(partitionSuperblock.S_inode_start+partitionSuperblock.S_inode_size))
+	err = usersInode.Deserialize(partitionPath, int64(partitionSuperblock.S_inode_start+usersInodeNum*partitionSuperblock.S_inode_size))
 	if err != nil {
 		return fmt.Errorf("error al leer el inodo de users.txt: %v", err)
 	}
@@ -86,7 +115,6 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		return errors.New("users.txt no es un archivo válido")
 	}
 
-	// Leer el contenido actual de users.txt
 	var content strings.Builder
 	for _, blockNum := range usersInode.I_block[:12] {
 		if blockNum == -1 {
@@ -100,8 +128,8 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		content.Write(bytes.Trim(fileBlock.B_content[:], "\x00"))
 	}
 	usersContent := strings.TrimSpace(content.String())
+	fmt.Printf("DEBUG: Contenido actual de users.txt en MKGRP:\n%s\n", usersContent)
 
-	// Procesar contenido para encontrar GID máximo y verificar duplicados
 	lines := strings.Split(usersContent, "\n")
 	maxGID := 0
 	for _, line := range lines {
@@ -123,13 +151,12 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		}
 	}
 
-	// Crear nueva línea
 	newGID := maxGID + 1
 	newLine := fmt.Sprintf("%d,G,%s", newGID, mkgrp.name)
 	updatedContent := usersContent + "\n" + newLine
+	fmt.Printf("DEBUG: Nuevo contenido de users.txt en MKGRP:\n%s\n", updatedContent)
 
-	// Escribir el contenido actualizado
-	blockSize := int(partitionSuperblock.S_block_size) // 64 bytes
+	blockSize := int(partitionSuperblock.S_block_size)
 	contentBytes := []byte(updatedContent)
 	numBlocksNeeded := (len(contentBytes) + blockSize - 1) / blockSize
 
@@ -137,55 +164,68 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		return errors.New("el archivo users.txt excede el límite de bloques directos (12)")
 	}
 
-	// Reutilizar o asignar bloques
-	for i := 0; i < numBlocksNeeded; i++ {
-		start := i * blockSize
-		end := start + blockSize
-		if end > len(contentBytes) {
-			end = len(contentBytes)
-		}
-		blockContent := contentBytes[start:end]
-
-		var blockNum int32
-		if i < len(usersInode.I_block) && usersInode.I_block[i] != -1 {
-			blockNum = usersInode.I_block[i] // Reutilizar bloque existente
-		} else {
-			// Asignar nuevo bloque
-			if partitionSuperblock.S_free_blocks_count <= 0 {
-				return errors.New("no hay bloques libres disponibles")
+	for i := 0; i < 12; i++ {
+		if i < numBlocksNeeded {
+			start := i * blockSize
+			end := start + blockSize
+			if end > len(contentBytes) {
+				end = len(contentBytes)
 			}
-			blockNum = partitionSuperblock.S_first_blo
-			partitionSuperblock.S_first_blo++
-			partitionSuperblock.S_free_blocks_count--
-			partitionSuperblock.S_blocks_count++
-			usersInode.I_block[i] = blockNum
+			blockContent := contentBytes[start:end]
 
-			// Actualizar bitmap de bloques
-			err = setBitmapBit(partitionPath, int64(partitionSuperblock.S_bm_block_start), int(blockNum), 1)
+			var blockNum int32
+			if i < len(usersInode.I_block) && usersInode.I_block[i] != -1 {
+				blockNum = usersInode.I_block[i]
+			} else {
+				blockNum, err = findFreeBlock(partitionSuperblock, partitionPath)
+				if err != nil {
+					return err
+				}
+				usersInode.I_block[i] = blockNum
+				err = partitionSuperblock.UpdateBitmapBlock(partitionPath, blockNum)
+				if err != nil {
+					return fmt.Errorf("error al actualizar bitmap de bloques: %v", err)
+				}
+				partitionSuperblock.S_free_blocks_count--
+			}
+
+			fileBlock := &structures.FileBlock{B_content: [64]byte{}}
+			copy(fileBlock.B_content[:], blockContent)
+			err = fileBlock.Serialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*int32(partitionSuperblock.S_block_size)))
 			if err != nil {
-				return fmt.Errorf("error al actualizar bitmap de bloques: %v", err)
+				return fmt.Errorf("error al escribir bloque %d: %v", blockNum, err)
 			}
-		}
-
-		fileBlock := &structures.FileBlock{}
-		copy(fileBlock.B_content[:], blockContent)
-		err = fileBlock.Serialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*int32(partitionSuperblock.S_block_size)))
-		if err != nil {
-			return fmt.Errorf("error al escribir bloque %d: %v", blockNum, err)
+		} else if i < len(usersInode.I_block) && usersInode.I_block[i] != -1 {
+			blockNum := usersInode.I_block[i]
+			fileBlock := &structures.FileBlock{B_content: [64]byte{}}
+			err = fileBlock.Serialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*int32(partitionSuperblock.S_block_size)))
+			if err != nil {
+				return fmt.Errorf("error al limpiar bloque %d: %v", blockNum, err)
+			}
+			err = partitionSuperblock.UpdateBitmapBlock(partitionPath, blockNum)
+			if err != nil {
+				return fmt.Errorf("error al liberar bloque %d: %v", blockNum, err)
+			}
+			partitionSuperblock.S_free_blocks_count++
+			usersInode.I_block[i] = -1
 		}
 	}
 
-	// Actualizar inodo
 	usersInode.I_size = int32(len(contentBytes))
-	err = usersInode.Serialize(partitionPath, int64(partitionSuperblock.S_inode_start+partitionSuperblock.S_inode_size))
+	err = usersInode.Serialize(partitionPath, int64(partitionSuperblock.S_inode_start+usersInodeNum*partitionSuperblock.S_inode_size))
 	if err != nil {
 		return fmt.Errorf("error al actualizar inodo: %v", err)
 	}
 
-	// Actualizar superbloque
-	err = partitionSuperblock.Serialize(partitionPath, int64(partitionSuperblock.S_inode_start-int32(binary.Size(structures.SuperBlock{}))))
+	err = partitionSuperblock.Serialize(partitionPath, int64(partitionSuperblock.S_bm_inode_start)-int64(binary.Size(partitionSuperblock)))
 	if err != nil {
 		return fmt.Errorf("error al actualizar superbloque: %v", err)
+	}
+
+	// Registrar en el Journal
+	err = AddJournalEntry(partitionSuperblock, partitionPath, "mkgrp", "/users.txt", mkgrp.name)
+	if err != nil {
+		return fmt.Errorf("error al registrar en el Journal: %v", err)
 	}
 
 	return nil

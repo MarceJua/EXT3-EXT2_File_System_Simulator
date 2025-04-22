@@ -128,6 +128,7 @@ func commandRmgrp(rmgrp *RMGRP) error {
 	}
 
 	updatedContent := strings.Join(lines, "\n")
+	fmt.Printf("DEBUG: Nuevo contenido de users.txt en RMGRP:\n%s\n", updatedContent)
 
 	// Escribir el contenido actualizado
 	blockSize := int(partitionSuperblock.S_block_size) // 64 bytes
@@ -139,38 +140,61 @@ func commandRmgrp(rmgrp *RMGRP) error {
 	}
 
 	// Reutilizar o asignar bloques
-	for i := 0; i < numBlocksNeeded; i++ {
-		start := i * blockSize
-		end := start + blockSize
-		if end > len(contentBytes) {
-			end = len(contentBytes)
-		}
-		blockContent := contentBytes[start:end]
-
-		var blockNum int32
-		if i < len(usersInode.I_block) && usersInode.I_block[i] != -1 {
-			blockNum = usersInode.I_block[i] // Reutilizar bloque existente
-		} else {
-			if partitionSuperblock.S_free_blocks_count <= 0 {
-				return errors.New("no hay bloques libres disponibles")
+	for i := 0; i < 12; i++ {
+		if i < numBlocksNeeded {
+			start := i * blockSize
+			end := start + blockSize
+			if end > len(contentBytes) {
+				end = len(contentBytes)
 			}
-			blockNum = partitionSuperblock.S_first_blo
-			partitionSuperblock.S_first_blo++
-			partitionSuperblock.S_free_blocks_count--
-			partitionSuperblock.S_blocks_count++
-			usersInode.I_block[i] = blockNum
+			blockContent := contentBytes[start:end]
 
-			err = setBitmapBit(partitionPath, int64(partitionSuperblock.S_bm_block_start), int(blockNum), 1)
+			var blockNum int32
+			if i < len(usersInode.I_block) && usersInode.I_block[i] != -1 {
+				blockNum = usersInode.I_block[i] // Reutilizar bloque existente
+			} else {
+				if partitionSuperblock.S_free_blocks_count <= 0 {
+					return errors.New("no hay bloques libres disponibles")
+				}
+				blockNum = partitionSuperblock.S_first_blo
+				partitionSuperblock.S_first_blo++
+				partitionSuperblock.S_free_blocks_count--
+				partitionSuperblock.S_blocks_count++
+				usersInode.I_block[i] = blockNum
+
+				err = setBitmapBit(partitionPath, int64(partitionSuperblock.S_bm_block_start), int(blockNum), 1)
+				if err != nil {
+					return fmt.Errorf("error al actualizar bitmap de bloques: %v", err)
+				}
+			}
+
+			fileBlock := &structures.FileBlock{}
+			// Limpiar el bloque completo antes de escribir
+			for j := range fileBlock.B_content {
+				fileBlock.B_content[j] = 0
+			}
+			copy(fileBlock.B_content[:], blockContent)
+			err = fileBlock.Serialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*int32(partitionSuperblock.S_block_size)))
+			if err != nil {
+				return fmt.Errorf("error al escribir bloque %d: %v", blockNum, err)
+			}
+		} else if i < len(usersInode.I_block) && usersInode.I_block[i] != -1 {
+			blockNum := usersInode.I_block[i]
+			fileBlock := &structures.FileBlock{}
+			// Limpiar el bloque completo
+			for j := range fileBlock.B_content {
+				fileBlock.B_content[j] = 0
+			}
+			err = fileBlock.Serialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*int32(partitionSuperblock.S_block_size)))
+			if err != nil {
+				return fmt.Errorf("error al limpiar bloque %d: %v", blockNum, err)
+			}
+			err = setBitmapBit(partitionPath, int64(partitionSuperblock.S_bm_block_start), int(blockNum), 0)
 			if err != nil {
 				return fmt.Errorf("error al actualizar bitmap de bloques: %v", err)
 			}
-		}
-
-		fileBlock := &structures.FileBlock{}
-		copy(fileBlock.B_content[:], blockContent)
-		err = fileBlock.Serialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*int32(partitionSuperblock.S_block_size)))
-		if err != nil {
-			return fmt.Errorf("error al escribir bloque %d: %v", blockNum, err)
+			partitionSuperblock.S_free_blocks_count++
+			usersInode.I_block[i] = -1
 		}
 	}
 
@@ -185,6 +209,12 @@ func commandRmgrp(rmgrp *RMGRP) error {
 	err = partitionSuperblock.Serialize(partitionPath, int64(partitionSuperblock.S_inode_start-int32(binary.Size(structures.SuperBlock{}))))
 	if err != nil {
 		return fmt.Errorf("error al actualizar superbloque: %v", err)
+	}
+
+	// Registrar en el Journal
+	err = AddJournalEntry(partitionSuperblock, partitionPath, "rmgrp", "/users.txt", rmgrp.name)
+	if err != nil {
+		return fmt.Errorf("error al registrar en el Journal: %v", err)
 	}
 
 	return nil

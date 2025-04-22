@@ -82,7 +82,6 @@ func commandMkusr(mkusr *MKUSR) error {
 	}
 	defer file.Close()
 
-	// Encontrar el inodo de users.txt desde la raíz
 	rootInode := &structures.Inode{}
 	err = rootInode.Deserialize(partitionPath, int64(partitionSuperblock.S_inode_start))
 	if err != nil {
@@ -121,7 +120,6 @@ func commandMkusr(mkusr *MKUSR) error {
 		return errors.New("users.txt no es un archivo válido")
 	}
 
-	// Leer contenido actual
 	var content strings.Builder
 	for i, blockNum := range usersInode.I_block[:12] {
 		if blockNum == -1 {
@@ -138,7 +136,6 @@ func commandMkusr(mkusr *MKUSR) error {
 	usersContent := strings.TrimSpace(content.String())
 	fmt.Printf("DEBUG: Contenido actual de users.txt:\n%s\n", usersContent)
 
-	// Validar usuario y grupo
 	lines := strings.Split(usersContent, "\n")
 	maxUID := 0
 	grpExists := false
@@ -164,13 +161,11 @@ func commandMkusr(mkusr *MKUSR) error {
 		return errors.New("el grupo especificado no existe o está eliminado")
 	}
 
-	// Agregar nuevo usuario
 	newUID := maxUID + 1
 	newLine := fmt.Sprintf("%d,U,%s,%s,%s", newUID, mkusr.grp, mkusr.user, mkusr.pass)
 	updatedContent := usersContent + "\n" + newLine
 	fmt.Printf("DEBUG: Nuevo contenido de users.txt:\n%s\n", updatedContent)
 
-	// Dividir contenido en bloques de 64 bytes
 	blockSize := int(partitionSuperblock.S_block_size)
 	contentBytes := []byte(updatedContent)
 	numBlocksNeeded := (len(contentBytes) + blockSize - 1) / blockSize
@@ -178,7 +173,6 @@ func commandMkusr(mkusr *MKUSR) error {
 		return errors.New("el archivo users.txt excede el límite de bloques directos (12)")
 	}
 
-	// Actualizar bloques
 	for i := 0; i < 12; i++ {
 		if i < numBlocksNeeded {
 			start := i * blockSize
@@ -191,9 +185,8 @@ func commandMkusr(mkusr *MKUSR) error {
 
 			var blockNum int32
 			if i < len(usersInode.I_block) && usersInode.I_block[i] != -1 {
-				blockNum = usersInode.I_block[i] // Reutilizar bloque existente
+				blockNum = usersInode.I_block[i]
 			} else {
-				// Buscar un bloque libre en el bitmap
 				blockNum, err = findFreeBlock(partitionSuperblock, partitionPath)
 				if err != nil {
 					return err
@@ -213,9 +206,13 @@ func commandMkusr(mkusr *MKUSR) error {
 				return fmt.Errorf("error al escribir bloque %d: %v", blockNum, err)
 			}
 		} else if i < len(usersInode.I_block) && usersInode.I_block[i] != -1 {
-			// Liberar bloques sobrantes
 			blockNum := usersInode.I_block[i]
-			err = partitionSuperblock.UpdateBitmapBlock(partitionPath, blockNum) // Marcar como libre (esto debería ser '0', revisar bitmaps.go)
+			fileBlock := &structures.FileBlock{B_content: [64]byte{}}
+			err = fileBlock.Serialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*int32(partitionSuperblock.S_block_size)))
+			if err != nil {
+				return fmt.Errorf("error al limpiar bloque %d: %v", blockNum, err)
+			}
+			err = partitionSuperblock.UpdateBitmapBlock(partitionPath, blockNum)
 			if err != nil {
 				return fmt.Errorf("error al liberar bloque %d: %v", blockNum, err)
 			}
@@ -230,9 +227,16 @@ func commandMkusr(mkusr *MKUSR) error {
 		return fmt.Errorf("error al actualizar inodo: %v", err)
 	}
 
-	err = partitionSuperblock.Serialize(partitionPath, int64(partitionSuperblock.S_bm_inode_start)-int64(binary.Size(partitionSuperblock)))
+	// Corregir serialización del superbloque
+	err = partitionSuperblock.Serialize(partitionPath, int64(partitionSuperblock.S_inode_start-int32(binary.Size(structures.SuperBlock{}))))
 	if err != nil {
 		return fmt.Errorf("error al actualizar superbloque: %v", err)
+	}
+
+	// Registrar en el Journal
+	err = AddJournalEntry(partitionSuperblock, partitionPath, "mkusr", "/users.txt", mkusr.user)
+	if err != nil {
+		return fmt.Errorf("error al registrar en el Journal: %v", err)
 	}
 
 	return nil
