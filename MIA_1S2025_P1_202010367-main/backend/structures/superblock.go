@@ -28,7 +28,9 @@ type SuperBlock struct {
 	S_bm_block_start    int32
 	S_inode_start       int32
 	S_block_start       int32
-	// Total: 68 bytes
+	S_journal_start     int32 // Inicio del Journaling (nuevo para EXT3)
+	S_journal_count     int32 // Número de entradas en el Journal (nuevo para EXT3)
+	// Total: 68 + 4 + 4 = 76 bytes
 }
 
 // Serialize escribe la estructura SuperBlock en un archivo binario en la posición especificada
@@ -115,6 +117,8 @@ func (sb *SuperBlock) Print() {
 	fmt.Printf("Bitmap Block Start: %d\n", sb.S_bm_block_start)
 	fmt.Printf("Inode Start: %d\n", sb.S_inode_start)
 	fmt.Printf("Block Start: %d\n", sb.S_block_start)
+	fmt.Printf("Journal Start: %d\n", sb.S_journal_start)
+	fmt.Printf("Journal Count: %d\n", sb.S_journal_count)
 }
 
 // Imprimir inodos

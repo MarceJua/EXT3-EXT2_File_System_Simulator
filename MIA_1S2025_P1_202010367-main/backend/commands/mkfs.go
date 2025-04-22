@@ -136,31 +136,56 @@ func commandMkfs(mkfs *MKFS) error {
 		return errors.New("la partición ya está formateada")
 	}
 
-	n := calculateN(partitionSize)
+	n := calculateN(partitionSize, mkfs.fs)
 	fmt.Printf("DEBUG: partitionSize=%d, n=%d\n", partitionSize, n)
 	superBlock := createSuperBlock(startOffset, n, mkfs.fs)
 
-	// Crear bitmaps y users.txt
-	if err := superBlock.CreateBitMaps(file); err != nil {
-		return err
-	}
-	if err := superBlock.CreateUsersFile(partitionPath); err != nil {
-		return err
-	}
-	if err := superBlock.Serialize(partitionPath, startOffset); err != nil {
-		return err
+	if mkfs.fs == "3fs" {
+		if err := structures.FormatEXT3(partitionPath, int32(startOffset), partitionSize); err != nil {
+			return err
+		}
+	} else {
+		if err := superBlock.CreateBitMaps(file); err != nil {
+			return err
+		}
+		if err := superBlock.CreateUsersFile(partitionPath); err != nil {
+			return err
+		}
+		if err := superBlock.Serialize(partitionPath, startOffset); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
-func calculateN(size int32) int32 {
-	numerator := int(size) - binary.Size(structures.SuperBlock{})
-	denominator := 4 + binary.Size(structures.Inode{}) + 3*binary.Size(structures.FileBlock{})
-	return int32(math.Floor(float64(numerator) / float64(denominator)))
+
+func calculateN(size int32, fs string) int32 {
+	superblockSize := int32(binary.Size(structures.SuperBlock{})) // 76 bytes
+	inodeSize := int32(binary.Size(structures.Inode{}))           // 88 bytes
+	blockSize := int32(binary.Size(structures.FileBlock{}))       // 64 bytes
+	journalEntries := int32(0)
+	journalSize := int32(0)
+	if fs == "3fs" {
+		journalEntries = 50
+		journalSize = int32(binary.Size(structures.Journal{})) // 114 bytes
+	}
+	numerator := int(size) - int(superblockSize) - int(journalEntries*journalSize)
+	denominator := 4 + int(inodeSize) + 3*int(blockSize)
+	n := int32(math.Floor(float64(numerator) / float64(denominator)))
+	if n < 2 {
+		n = 2
+	}
+	return n
 }
 
 func createSuperBlock(startOffset int64, n int32, fs string) *structures.SuperBlock {
-	bm_inode_start := int32(startOffset) + int32(binary.Size(structures.SuperBlock{}))
+	journalEntries := int32(0)
+	journalStart := startOffset + int64(binary.Size(structures.SuperBlock{}))
+	if fs == "3fs" {
+		journalEntries = 50
+		journalStart += int64(journalEntries * int32(binary.Size(structures.Journal{})))
+	}
+	bm_inode_start := int32(journalStart)
 	bm_block_start := bm_inode_start + n
 	inode_start := bm_block_start + (3 * n)
 	block_start := inode_start + (int32(binary.Size(structures.Inode{})) * n)
@@ -182,7 +207,7 @@ func createSuperBlock(startOffset int64, n int32, fs string) *structures.SuperBl
 		freeBlocks = 4
 	}
 
-	return &structures.SuperBlock{
+	sb := &structures.SuperBlock{
 		S_filesystem_type:   fsType,
 		S_inodes_count:      totalInodes,
 		S_blocks_count:      totalBlocks,
@@ -194,11 +219,16 @@ func createSuperBlock(startOffset int64, n int32, fs string) *structures.SuperBl
 		S_magic:             0xEF53,
 		S_inode_size:        int32(binary.Size(structures.Inode{})),
 		S_block_size:        int32(binary.Size(structures.FileBlock{})),
-		S_first_ino:         2, // Próximo inodo libre
-		S_first_blo:         2, // Próximo bloque libre
+		S_first_ino:         2,
+		S_first_blo:         2,
 		S_bm_inode_start:    bm_inode_start,
 		S_bm_block_start:    bm_block_start,
 		S_inode_start:       inode_start,
 		S_block_start:       block_start,
+		S_journal_count:     journalEntries,
 	}
+	if fs == "3fs" {
+		sb.S_journal_start = int32(startOffset + int64(binary.Size(structures.SuperBlock{})))
+	}
+	return sb
 }
