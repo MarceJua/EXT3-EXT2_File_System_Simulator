@@ -5,14 +5,34 @@ import { useSession } from "@/context/SessionContext";
 import InputTerminal from "@/components/InputTerminal";
 import OutputTerminal from "@/components/OutputTerminal";
 import FileUpload from "@/components/FileUpload";
+import DiskSelector from "@/components/DiskSelector";
 import { executeCommands } from "@/services/api";
 import Link from "next/link";
+
+interface Disk {
+  name: string;
+  path: string;
+  sizeMB: number;
+  fit: string;
+  mountedPartitions: string[] | null | undefined;
+}
+
+interface Partition {
+  id: string;
+  path: string;
+  name: string;
+  sizeKB: number;
+  fit: string;
+  status: string;
+}
 
 export default function Home() {
   const { session, logout } = useSession();
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedDisk, setSelectedDisk] = useState<Disk | null>(null);
+  const [selectedPartition, setSelectedPartition] = useState<Partition | null>(null);
 
   // Comandos permitidos sin sesión
   const noSessionCommands = [
@@ -21,7 +41,6 @@ export default function Home() {
     "fdisk",
     "mount",
     "unmount",
-    "mounted",
     "mkfs",
   ];
 
@@ -31,7 +50,6 @@ export default function Home() {
       return;
     }
 
-    // Validar comandos en el cliente
     const commands = input.split("\n").map((cmd) => cmd.trim()).filter((cmd) => cmd);
     for (const cmd of commands) {
       const commandName = cmd.split(/\s+/)[0].toLowerCase();
@@ -71,6 +89,8 @@ export default function Home() {
       const response = await executeCommands("logout");
       setOutput(response);
       logout();
+      setSelectedDisk(null);
+      setSelectedPartition(null);
     } catch (error) {
       setOutput(`Error al cerrar sesión: ${error instanceof Error ? error.message : "Desconocido"}`);
     }
@@ -220,6 +240,12 @@ export default function Home() {
         </header>
 
         {/* Componentes */}
+        {session.isAuthenticated && (
+          <DiskSelector
+            onDiskSelect={setSelectedDisk}
+            onPartitionSelect={setSelectedPartition}
+          />
+        )}
         <FileUpload onFileContent={handleFileContent} />
         <InputTerminal value={input} onChange={setInput} />
         <OutputTerminal output={output} />
