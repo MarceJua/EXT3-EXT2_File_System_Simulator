@@ -96,6 +96,8 @@ func Analyzer(input string) (string, error) {
 		return commands.ParseChgrp(tokens[1:])
 	case "cat":
 		return commands.ParseCat(tokens[1:])
+	case "remove":
+		return commands.ParseRemove(tokens[1:])
 	case "journal_report":
 		return commands.ParseJournalReport(tokens[1:])
 	default:
