@@ -104,6 +104,10 @@ func Analyzer(input string) (string, error) {
 		return commands.ParseRename(tokens[1:])
 	case "journal_report":
 		return commands.ParseJournalReport(tokens[1:])
+	case "chmod":
+		return commands.ParseChmod(tokens[1:])
+	case "copy":
+		return commands.ParseCopy(tokens[1:])
 	default:
 		return "", fmt.Errorf("comando desconocido: %s", command)
 	}
