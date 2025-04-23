@@ -142,26 +142,49 @@ func commandLogin(login *LOGIN) error {
 	usersContent := strings.TrimSpace(content.String())
 	fmt.Printf("DEBUG: Contenido de users.txt en login:\n%s\n", usersContent)
 
+	// Mapa para almacenar GIDs de grupos
+	groupGIDs := make(map[string]string)
 	lines := strings.Split(usersContent, "\n")
 	for _, line := range lines {
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		parts := strings.Split(line, ",")
-		if len(parts) < 3 {
+		fmt.Printf("DEBUG: Procesando línea: %s, partes: %v\n", line, parts)
+
+		// Procesar líneas de grupos
+		if len(parts) == 3 && parts[1] == "G" && parts[0] != "0" {
+			groupGIDs[parts[2]] = parts[0] // Almacenar GID del grupo
 			continue
 		}
 
-		if len(parts) == 4 && parts[1] == "U" {
+		// Procesar líneas de usuarios
+		if (len(parts) == 5 && parts[1] == "U" && parts[0] != "0") || (len(parts) == 4 && parts[1] == "U" && parts[0] != "0") {
 			username := parts[2]
 			password := parts[3]
+			if len(parts) == 5 {
+				username = parts[3]
+				password = parts[4]
+			}
+			fmt.Printf("DEBUG: Comparando usuario: %s, contraseña: %s\n", username, password)
 			if username == login.user && password == login.pass {
+				gid := parts[0] // Por defecto, usar UID como GID para compatibilidad con root
+				if len(parts) == 5 {
+					// Buscar GID del grupo
+					if groupGID, exists := groupGIDs[parts[2]]; exists {
+						gid = groupGID
+					} else {
+						fmt.Printf("DEBUG: Grupo %s no encontrado, usando UID como GID\n", parts[2])
+					}
+				}
 				stores.CurrentSession = stores.Session{
 					ID:       login.id,
 					Username: login.user,
 					UID:      parts[0],
-					GID:      parts[0],
+					GID:      gid,
 				}
+				fmt.Printf("DEBUG: Sesión iniciada: UID=%s, GID=%s\n", parts[0], gid)
 				return nil
 			}
 		}
