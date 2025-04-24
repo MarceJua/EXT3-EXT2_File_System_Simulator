@@ -41,6 +41,7 @@ export default function Home() {
     "fdisk",
     "mount",
     "unmount",
+    "mounted",
     "mkfs",
   ];
 

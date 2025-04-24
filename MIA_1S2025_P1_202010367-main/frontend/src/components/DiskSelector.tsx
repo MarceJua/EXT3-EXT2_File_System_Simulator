@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import FileSystemViewer from "./FileSystemViewer"; // Importar el nuevo componente
 
 interface Disk {
   name: string;
   path: string;
   sizeMB: number;
   fit: string;
-  mountedPartitions: string[] | null | undefined; // Permitir null o undefined
+  mountedPartitions: string[] | null | undefined;
 }
 
 interface Partition {
@@ -40,7 +41,6 @@ const DiskSelector: React.FC<DiskSelectorProps> = ({ onDiskSelect, onPartitionSe
           throw new Error(`Error al cargar discos: ${response.statusText}`);
         }
         const data = await response.json();
-        // Validar que data.disks sea un array
         if (!Array.isArray(data.disks)) {
           throw new Error("Respuesta inválida del servidor: 'disks' no es un array");
         }
@@ -72,7 +72,6 @@ const DiskSelector: React.FC<DiskSelectorProps> = ({ onDiskSelect, onPartitionSe
           throw new Error(`Error al cargar particiones: ${response.statusText}`);
         }
         const data = await response.json();
-        // Validar que data.partitions sea un array
         if (!Array.isArray(data.partitions)) {
           throw new Error("Respuesta inválida del servidor: 'partitions' no es un array");
         }
@@ -210,7 +209,8 @@ const DiskSelector: React.FC<DiskSelectorProps> = ({ onDiskSelect, onPartitionSe
               Volver a Discos
             </button>
           </div>
-          <p className="text-orange-300">Próximamente: Navegación de directorios...</p>
+          {/* Mostrar el navegador de archivos */}
+          <FileSystemViewer partitionID={selectedPartition.id} />
         </div>
       )}
     </div>

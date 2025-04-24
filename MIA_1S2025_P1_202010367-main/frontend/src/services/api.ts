@@ -90,3 +90,37 @@ export const getPartitions = async (
     throw error;
   }
 };
+
+export const getFileSystemEntries = async (
+  partitionID: string,
+  path: string
+): Promise<
+  {
+    name: string;
+    type: "folder" | "file";
+    size: number;
+    content: string;
+    perm: string;
+    uid: number;
+    gid: number;
+    created: number;
+    modified: number;
+  }[]
+> => {
+  try {
+    const response = await fetch(
+      `${API_URL}/filesystem?id=${encodeURIComponent(partitionID)}&path=${encodeURIComponent(path)}`
+    );
+    if (!response.ok) {
+      throw new Error(`Error al cargar el directorio: ${response.statusText}`);
+    }
+    const data = await response.json();
+    if (!Array.isArray(data.entries)) {
+      throw new Error("Respuesta inválida del servidor: 'entries' no es un array");
+    }
+    return data.entries;
+  } catch (error) {
+    console.error("Error al cargar el directorio:", error);
+    throw error;
+  }
+};

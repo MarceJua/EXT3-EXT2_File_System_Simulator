@@ -45,6 +45,22 @@ type Partition struct {
 	Status string  `json:"status"`
 }
 
+type FileSystemEntry struct {
+	Name     string  `json:"name"`
+	Type     string  `json:"type"`     // "folder" o "file"
+	Size     int32   `json:"size"`     // Tamaño en bytes (0 para carpetas)
+	Content  string  `json:"content"`  // Contenido (solo para archivos, "" para carpetas)
+	Perm     string  `json:"perm"`     // Permisos (ej. "664")
+	UID      int32   `json:"uid"`      // User ID
+	GID      int32   `json:"gid"`      // Group ID
+	Created  float32 `json:"created"`  // Fecha de creación (I_ctime)
+	Modified float32 `json:"modified"` // Fecha de modificación (I_mtime)
+}
+
+type FileSystemResponse struct {
+	Entries []FileSystemEntry `json:"entries"`
+}
+
 type DisksResponse struct {
 	Disks []Disk `json:"disks"`
 }
@@ -60,6 +76,7 @@ var noSessionCommands = map[string]bool{
 	"fdisk":   true,
 	"mount":   true,
 	"unmount": true,
+	"mounted": true,
 	"mkfs":    true,
 }
 
@@ -380,6 +397,163 @@ func main() {
 
 		return c.JSON(PartitionsResponse{
 			Partitions: partitions,
+		})
+	})
+
+	app.Get("/filesystem", func(c *fiber.Ctx) error {
+		partitionID := c.Query("id")
+		path := c.Query("path")
+
+		if partitionID == "" {
+			return c.Status(400).JSON(CommandResponse{
+				Output: "Error: id es requerido",
+			})
+		}
+
+		// Obtener el superbloque y la partición montada
+		sb, _, diskPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+		if err != nil {
+			return c.Status(400).JSON(CommandResponse{
+				Output: fmt.Sprintf("Error al obtener la partición montada: %s", err.Error()),
+			})
+		}
+
+		// Si no se especifica un path, empezamos desde la raíz (/)
+		if path == "" {
+			path = "/"
+		}
+
+		// Navegar al directorio especificado
+		var entries []FileSystemEntry
+		currentInode := int32(0) // Comenzar desde el inodo raíz
+		if path != "/" {
+			// Dividir el path en directorios (ignorar la raíz inicial "/")
+			dirs := strings.Split(strings.Trim(path, "/"), "/")
+			for _, dir := range dirs {
+				inode := &structures.Inode{}
+				err := inode.Deserialize(diskPath, int64(sb.S_inode_start+currentInode*sb.S_inode_size))
+				if err != nil {
+					return c.Status(500).JSON(CommandResponse{
+						Output: fmt.Sprintf("Error al leer inodo %d: %s", currentInode, err.Error()),
+					})
+				}
+				if inode.I_type[0] != '0' { // Debe ser una carpeta
+					return c.Status(400).JSON(CommandResponse{
+						Output: fmt.Sprintf("El path %s no es un directorio", path),
+					})
+				}
+
+				// Buscar la entrada del directorio actual
+				found := false
+				for _, blockIndex := range inode.I_block {
+					if blockIndex == -1 {
+						break
+					}
+					folderBlock := &structures.FolderBlock{}
+					err = folderBlock.Deserialize(diskPath, int64(sb.S_block_start+blockIndex*sb.S_block_size))
+					if err != nil {
+						return c.Status(500).JSON(CommandResponse{
+							Output: fmt.Sprintf("Error al leer bloque %d: %s", blockIndex, err.Error()),
+						})
+					}
+					for _, content := range folderBlock.B_content {
+						name := strings.Trim(string(content.B_name[:]), "\x00")
+						if name == dir && content.B_inodo != -1 {
+							currentInode = content.B_inodo
+							found = true
+							break
+						}
+					}
+					if found {
+						break
+					}
+				}
+				if !found {
+					return c.Status(400).JSON(CommandResponse{
+						Output: fmt.Sprintf("Directorio %s no encontrado en el path %s", dir, path),
+					})
+				}
+			}
+		}
+
+		// Leer el inodo del directorio actual
+		dirInode := &structures.Inode{}
+		err = dirInode.Deserialize(diskPath, int64(sb.S_inode_start+currentInode*sb.S_inode_size))
+		if err != nil {
+			return c.Status(500).JSON(CommandResponse{
+				Output: fmt.Sprintf("Error al leer inodo del directorio %d: %s", currentInode, err.Error()),
+			})
+		}
+		if dirInode.I_type[0] != '0' {
+			return c.Status(400).JSON(CommandResponse{
+				Output: fmt.Sprintf("El path %s no es un directorio", path),
+			})
+		}
+
+		// Leer los bloques del directorio y listar las entradas
+		for _, blockIndex := range dirInode.I_block {
+			if blockIndex == -1 {
+				break
+			}
+			folderBlock := &structures.FolderBlock{}
+			err = folderBlock.Deserialize(diskPath, int64(sb.S_block_start+blockIndex*sb.S_block_size))
+			if err != nil {
+				return c.Status(500).JSON(CommandResponse{
+					Output: fmt.Sprintf("Error al leer bloque %d: %s", blockIndex, err.Error()),
+				})
+			}
+			for _, content := range folderBlock.B_content {
+				name := strings.Trim(string(content.B_name[:]), "\x00")
+				// Ignorar entradas vacías y las entradas especiales . y ..
+				if content.B_inodo == -1 || name == "" || name == "." || name == ".." {
+					continue
+				}
+
+				// Leer el inodo de la entrada
+				entryInode := &structures.Inode{}
+				err = entryInode.Deserialize(diskPath, int64(sb.S_inode_start+content.B_inodo*sb.S_inode_size))
+				if err != nil {
+					continue // Saltar entradas corruptas
+				}
+
+				entryType := "folder"
+				contentStr := ""
+				if entryInode.I_type[0] == '1' { // Archivo
+					entryType = "file"
+					// Leer el contenido del archivo
+					var contentBuilder strings.Builder
+					for _, fileBlockIndex := range entryInode.I_block {
+						if fileBlockIndex == -1 {
+							break
+						}
+						fileBlock := &structures.FileBlock{}
+						err = fileBlock.Deserialize(diskPath, int64(sb.S_block_start+fileBlockIndex*sb.S_block_size))
+						if err != nil {
+							continue
+						}
+						contentBuilder.WriteString(strings.Trim(string(fileBlock.B_content[:]), "\x00"))
+					}
+					contentStr = contentBuilder.String()
+				}
+
+				// Construir la entrada
+				perm := string(entryInode.I_perm[:])
+				entries = append(entries, FileSystemEntry{
+					Name:     name,
+					Type:     entryType,
+					Size:     entryInode.I_size,
+					Content:  contentStr,
+					Perm:     perm,
+					UID:      entryInode.I_uid,
+					GID:      entryInode.I_gid,
+					Created:  entryInode.I_ctime,
+					Modified: entryInode.I_mtime,
+				})
+			}
+		}
+
+		return c.JSON(FileSystemResponse{
+			Entries: entries,
 		})
 	})
 
