@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import FileSystemViewer from "./FileSystemViewer"; // Importar el nuevo componente
+import FileSystemViewer from "./FileSystemViewer";
+import JournalViewer from "./JournalViewer";
 
 interface Disk {
   name: string;
@@ -209,8 +210,8 @@ const DiskSelector: React.FC<DiskSelectorProps> = ({ onDiskSelect, onPartitionSe
               Volver a Discos
             </button>
           </div>
-          {/* Mostrar el navegador de archivos */}
           <FileSystemViewer partitionID={selectedPartition.id} />
+          <JournalViewer defaultPartitionID={selectedPartition.id} />
         </div>
       )}
     </div>

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,14 +48,26 @@ type Partition struct {
 
 type FileSystemEntry struct {
 	Name     string  `json:"name"`
-	Type     string  `json:"type"`     // "folder" o "file"
-	Size     int32   `json:"size"`     // Tamaño en bytes (0 para carpetas)
-	Content  string  `json:"content"`  // Contenido (solo para archivos, "" para carpetas)
-	Perm     string  `json:"perm"`     // Permisos (ej. "664")
-	UID      int32   `json:"uid"`      // User ID
-	GID      int32   `json:"gid"`      // Group ID
-	Created  float32 `json:"created"`  // Fecha de creación (I_ctime)
-	Modified float32 `json:"modified"` // Fecha de modificación (I_mtime)
+	Type     string  `json:"type"` // "folder" o "file"
+	Size     int32   `json:"size"`
+	Content  string  `json:"content"`
+	Perm     string  `json:"perm"`
+	UID      int32   `json:"uid"`
+	GID      int32   `json:"gid"`
+	Created  float32 `json:"created"`
+	Modified float32 `json:"modified"`
+}
+
+type JournalEntry struct {
+	Count     int32  `json:"count"`
+	Operation string `json:"operation"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	Date      int32  `json:"date"`
+}
+
+type JournalResponse struct {
+	Entries []JournalEntry `json:"entries"`
 }
 
 type FileSystemResponse struct {
@@ -553,6 +566,61 @@ func main() {
 		}
 
 		return c.JSON(FileSystemResponse{
+			Entries: entries,
+		})
+	})
+
+	app.Get("/journal", func(c *fiber.Ctx) error {
+		partitionID := c.Query("id")
+		if partitionID == "" {
+			return c.Status(400).JSON(CommandResponse{
+				Output: "Error: id es requerido",
+			})
+		}
+
+		// Obtener la partición montada
+		sb, _, diskPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+		if err != nil {
+			return c.Status(400).JSON(CommandResponse{
+				Output: fmt.Sprintf("Error al obtener la partición montada: %s", err.Error()),
+			})
+		}
+
+		// Verificar si es EXT3
+		if sb.S_filesystem_type != 3 {
+			return c.Status(400).JSON(CommandResponse{
+				Output: fmt.Sprintf("La partición %s no soporta Journaling (no es EXT3)", partitionID),
+			})
+		}
+
+		// Leer las entradas del Journal
+		var entries []JournalEntry
+		for i := int32(0); i < sb.S_journal_count; i++ {
+			journalEntry := &structures.Journal{}
+			offset := int64(sb.S_journal_start) + int64(i*int32(binary.Size(journalEntry)))
+			err := journalEntry.Deserialize(diskPath, offset)
+			if err != nil {
+				return c.Status(500).JSON(CommandResponse{
+					Output: fmt.Sprintf("Error al deserializar entrada %d: %s", i, err.Error()),
+				})
+			}
+			// Detenerse si la entrada es inválida (Count == 0 o Operation vacía)
+			operation := strings.Trim(string(journalEntry.Content.Operation[:]), "\x00")
+			if journalEntry.Count == 0 || operation == "" {
+				break
+			}
+
+			// Construir la entrada del Journal
+			entries = append(entries, JournalEntry{
+				Count:     journalEntry.Count,
+				Operation: operation,
+				Path:      strings.Trim(string(journalEntry.Content.Path[:]), "\x00"),
+				Content:   strings.Trim(string(journalEntry.Content.Content[:]), "\x00"),
+				Date:      int32(journalEntry.Content.Date),
+			})
+		}
+
+		return c.JSON(JournalResponse{
 			Entries: entries,
 		})
 	})

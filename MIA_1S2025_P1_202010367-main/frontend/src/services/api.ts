@@ -124,3 +124,32 @@ export const getFileSystemEntries = async (
     throw error;
   }
 };
+
+export const getJournalEntries = async (
+  partitionID: string
+): Promise<
+  {
+    count: number;
+    operation: string;
+    path: string;
+    content: string;
+    date: number;
+  }[]
+> => {
+  try {
+    const response = await fetch(
+      `${API_URL}/journal?id=${encodeURIComponent(partitionID)}`
+    );
+    if (!response.ok) {
+      throw new Error(`Error al cargar el Journal: ${response.statusText}`);
+    }
+    const data = await response.json();
+    if (!Array.isArray(data.entries)) {
+      throw new Error("Respuesta inválida del servidor: 'entries' no es un array");
+    }
+    return data.entries;
+  } catch (error) {
+    console.error("Error al cargar el Journal:", error);
+    throw error;
+  }
+};
