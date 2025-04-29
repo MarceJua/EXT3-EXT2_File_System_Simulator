@@ -114,6 +114,10 @@ func Analyzer(input string) (string, error) {
 		return commands.ParseFind(tokens[1:])
 	case "chown":
 		return commands.ParseChown(tokens[1:])
+	case "loss":
+		return commands.ParseLoss(tokens[1:])
+	case "recovery":
+		return commands.ParseRecovery(tokens[1:])
 	default:
 		return "", fmt.Errorf("comando desconocido: %s", command)
 	}

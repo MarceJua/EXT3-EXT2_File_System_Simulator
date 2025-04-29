@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	stores "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/stores"
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/structures"
@@ -103,6 +104,7 @@ func commandChgrp(chgrp *CHGRP) error {
 	lines := strings.Split(usersContent, "\n")
 	userFound := false
 	grpExists := false
+	var oldGroup string
 	for _, line := range lines {
 		if line == "" {
 			continue
@@ -113,6 +115,7 @@ func commandChgrp(chgrp *CHGRP) error {
 		}
 		if parts[1] == "U" && parts[3] == chgrp.user && parts[0] != "0" {
 			userFound = true
+			oldGroup = parts[2]
 		}
 		if parts[1] == "G" && parts[2] == chgrp.grp && parts[0] != "0" {
 			grpExists = true
@@ -202,6 +205,7 @@ func commandChgrp(chgrp *CHGRP) error {
 	}
 
 	usersInode.I_size = int32(len(contentBytes))
+	usersInode.I_mtime = float32(time.Now().Unix())
 	err = usersInode.Serialize(partitionPath, int64(partitionSuperblock.S_inode_start+partitionSuperblock.S_inode_size))
 	if err != nil {
 		return fmt.Errorf("error al actualizar inodo: %v", err)
@@ -210,6 +214,13 @@ func commandChgrp(chgrp *CHGRP) error {
 	err = partitionSuperblock.Serialize(partitionPath, int64(partitionSuperblock.S_inode_start-int32(binary.Size(structures.SuperBlock{}))))
 	if err != nil {
 		return fmt.Errorf("error al actualizar superbloque: %v", err)
+	}
+
+	// Registrar la operación en el Journal
+	content.WriteString(fmt.Sprintf("%s -> %s", oldGroup, chgrp.grp))
+	err = AddJournalEntry(partitionSuperblock, partitionPath, "chgrp", chgrp.user, content.String())
+	if err != nil {
+		return fmt.Errorf("error al registrar operación en el Journal: %v", err)
 	}
 
 	return nil
