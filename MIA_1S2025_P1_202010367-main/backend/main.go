@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	analyzer "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/analyzer"
 	stores "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/stores"
@@ -97,6 +98,13 @@ func main() {
 	app := fiber.New()
 
 	app.Use(cors.New(cors.Config{}))
+
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"status": "ok",
+			"time":   time.Now(),
+		})
+	})
 
 	app.Post("/execute", func(c *fiber.Ctx) error {
 		var req CommandRequest
