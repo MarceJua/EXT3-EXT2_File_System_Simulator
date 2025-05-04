@@ -97,12 +97,20 @@ func ParseFdisk(tokens []string) (string, error) {
 
 	// Validar combinaciones de parámetros
 	if cmd.delete != "" {
-		if cmd.size > 0 || cmd.add != 0 || cmd.typ != "" || cmd.fit != "" {
-			return "", errors.New("el parámetro -delete no puede combinarse con -size, -add, -type o -fit")
+		if cmd.add != 0 || cmd.typ != "" || cmd.fit != "" {
+			return "", errors.New("el parámetro -delete no puede combinarse con -add, -type o -fit")
+		}
+		if cmd.size > 0 {
+			// Ignorar -size si está presente con -delete
+			cmd.size = 0
 		}
 	} else if cmd.add != 0 {
-		if cmd.size > 0 || cmd.delete != "" {
-			return "", errors.New("el parámetro -add no puede combinarse con -size o -delete")
+		if cmd.delete != "" {
+			return "", errors.New("el parámetro -add no puede combinarse con -delete")
+		}
+		if cmd.size > 0 {
+			// Ignorar -size si está presente con -add
+			cmd.size = 0
 		}
 	} else {
 		if cmd.size == 0 {
